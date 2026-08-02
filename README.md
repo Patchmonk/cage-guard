@@ -9,17 +9,84 @@ Cage Guard is a standalone, multi-project file integrity checker. It reads one c
 - Node.js 18 or newer installed and available in your system PATH.
 - Verify with: `node --version`
 
-## 3. Quick start
+## 3. Getting Started
+
+### Step 1 — Clone or copy the tool
 
 ```
-node guard.mjs init C:/path/to/your-project
+git clone <repo-url> cage-guard
+cd cage-guard
+```
+
+Or copy the folder anywhere. It has zero dependencies. No npm install.
+
+### Step 2 — Verify Node.js
+
+```
+node --version
+```
+
+Must be 18 or newer. If "node is not recognized":
+- Windows: install from nodejs.org, restart your terminal.
+- Mac: `brew install node`
+- Linux: `sudo apt install nodejs` (or your distro's package manager)
+
+### Step 3 — Point the tool at your project
+
+PowerShell:
+
+```
+node guard.mjs init "C:\Users\You\dev\my-project"
+```
+
+CMD:
+
+```
+node guard.mjs init "C:\Users\You\dev\my-project"
+```
+
+Git Bash / Mac / Linux:
+
+```
+node guard.mjs init /home/you/dev/my-project
+```
+
+Notes:
+- Paths with spaces MUST be wrapped in quotes.
+- PowerShell and CMD both accept forward slashes: `node guard.mjs init "C:/Users/You/dev/my-project"`
+- The tool scans your project, detects known config files, and suggests a list. Press `Y` to accept, or type `edit` to customize.
+
+### Step 4 — Capture (hash and lock)
+
+```
 node guard.mjs capture my-project
+```
+
+This hashes every protected file and sets it read-only. You will see green checkmarks. The hash store is written to `hashes/my-project.hashes.json`.
+
+### Step 5 — Check (verify)
+
+```
 node guard.mjs check my-project
 ```
 
-1. `init` scans the project, detects known config files via detection profiles, and writes `configs/<name>.json`.
-2. `capture` hashes every protected file and locks it read-only.
-3. `check` re-hashes the files and reports green or red.
+All green means your files are intact. Exit code 0. Red means something changed. Exit code 1.
+
+### Step 6 — Protect the tool itself
+
+Windows: double-click `protect-tool.bat`
+
+Mac/Linux:
+
+```
+chmod -R a-w guard.mjs src/ configs/
+```
+
+This sets the tool's source code read-only. `hashes/` and `reports/` remain writable (the tool needs to write there).
+
+### Step 7 — Create a desktop shortcut (optional)
+
+Create a shortcut to `check-all.bat` on your desktop. Double-click it any time to check ALL projects at once. Do NOT copy the `.bat` file elsewhere — it only works from inside the cage-guard folder.
 
 ## 4. Commands
 
@@ -47,6 +114,106 @@ node guard.mjs check
 ```
 
 The first verifies one project. The second (no name) checks every project in `configs/` and prints a combined summary.
+
+### Daily workflow
+
+Before reviewing any AI agent's work:
+
+```
+Double-click check-all.bat
+(or: node guard.mjs check)
+```
+
+Green = safe to review. Red = stop. Paste the report block to your agent and say "revert."
+
+When YOU need to edit protected files:
+
+Windows (PowerShell or CMD):
+
+```
+attrib -r /s "C:\Users\You\dev\my-project\*"
+(edit your files)
+cd C:\path\to\cage-guard
+node guard.mjs capture my-project
+```
+
+Mac / Linux:
+
+```
+chmod -R u+w /home/you/dev/my-project
+(edit your files)
+cd /path/to/cage-guard
+node guard.mjs capture my-project
+```
+
+Capture re-hashes and re-locks everything. Run check to confirm green.
+
+### Reading the output
+
+| Symbol | Color | Meaning | Action |
+|--------|-------|---------|--------|
+| ✓ | Green | INTACT — unchanged and locked | None. All good. |
+| ✗ | Red | MODIFIED — content changed | Revert or re-capture. |
+| ✗ | Red | MISSING — file deleted | Restore or re-capture. |
+| ! | Yellow | NOT LOCKED — hash matches but read-only removed | Run capture to re-lock. |
+| ! | Yellow | NOT CAPTURED — in config but never hashed | Run capture. |
+
+Yellow warnings do NOT cause exit code 1. Only red violations do.
+
+If you see many yellow and zero red, you removed read-only to edit files but forgot to re-capture. Run capture.
+
+When violations exist, the tool prints an agent-paste report block:
+
+```
+=== CAGE GUARD REPORT ===
+Project:   My Project
+...
+ACTION REQUIRED:
+  Revert ALL modifications to your last known good state.
+=== END REPORT ===
+```
+
+Copy everything between the === lines. Paste it into your AI agent's conversation. The agent sees exactly what changed and what to do. You do not need to explain anything.
+
+### Terminal reference
+
+PowerShell:
+
+```
+cd "C:\Users\You\dev\cage-guard"
+node guard.mjs check my-project
+# Paths with spaces: always quote them.
+# Forward slashes also work: "C:/Users/You/dev/my-project"
+```
+
+CMD:
+
+```
+cd "C:\Users\You\dev\cage-guard"
+node guard.mjs check my-project
+# Paths with spaces: always quote them.
+```
+
+Git Bash / Mac / Linux:
+
+```
+cd /home/you/dev/cage-guard
+node guard.mjs check my-project
+# Use forward slashes. Quote paths with spaces.
+```
+
+Unlock files:
+
+```
+Windows:  attrib -r /s "C:\path\to\project\*"
+Unix:     chmod -R u+w /path/to/project
+```
+
+Re-lock files:
+
+```
+node guard.mjs capture my-project
+```
 
 ## 5. Config format
 
@@ -135,6 +302,8 @@ Run protect-tool.bat after setup. This sets guard.mjs, src/, and configs/ to rea
 | `Pattern not supported in v1` | `**` in the middle of a path is not supported. Use `folder/**` or `folder/*`. |
 | `Hash store corrupted` | Delete `hashes/<name>.hashes.json`. Run capture to regenerate. |
 | `Invalid JSON in configs/` | The config file has a syntax error. Open it and fix the JSON. |
+| All files show NOT LOCKED | You removed read-only but didn't re-capture. Run: `node guard.mjs capture <name>` |
+| `edit` mode isn't what I expected | `edit` accepts `remove <n>`, `add <pattern>`, then `done`. For a plain text edit, press `Y` and edit `configs/<name>.json` manually in your preferred editor. |
 
 ## 14. Limitations
 
