@@ -1,0 +1,3 @@
+configs/*.json
+hashes/*.json
+reports/*.log
