@@ -2,7 +2,7 @@
 
 ## 1. What this is
 
-Cage Guard is a standalone, multi-project file integrity checker. It reads one config per project, hashes the protected files, locks them read-only, and later verifies that their bytes have not changed. It is project-blind — it does not know what any file is or what any project does. It checks if bytes changed. That is all. Zero dependencies. Node.js built-ins only.
+Cage Guard is a standalone, multi-project file integrity checker. It reads one config per project, hashes the protected files, locks them read-only, and later verifies that their bytes have not changed. It is project-blind it does not know what any file is or what any project does. It checks if bytes changed. That is all. Zero dependencies. Node.js built-ins only.
 
 ## 2. Requirements
 
@@ -31,7 +31,7 @@ Must be 18 or newer. If "node is not recognized":
 - Mac: `brew install node`
 - Linux: `sudo apt install nodejs` (or your distro's package manager)
 
-### Step 3 — Point the tool at your project
+### Step 3  Point the tool at your project
 
 PowerShell:
 
@@ -56,7 +56,7 @@ Notes:
 - PowerShell and CMD both accept forward slashes: `node guard.mjs init "C:/Users/You/dev/my-project"`
 - The tool scans your project, detects known config files, and suggests a list. Press `Y` to accept, or type `edit` to customize.
 
-### Step 4 — Capture (hash and lock)
+### Step 4  Capture (hash and lock)
 
 ```
 node guard.mjs capture my-project
@@ -64,7 +64,7 @@ node guard.mjs capture my-project
 
 This hashes every protected file and sets it read-only. You will see green checkmarks. The hash store is written to `hashes/my-project.hashes.json`.
 
-### Step 5 — Check (verify)
+### Step 5  Check (verify)
 
 ```
 node guard.mjs check my-project
@@ -72,7 +72,7 @@ node guard.mjs check my-project
 
 All green means your files are intact. Exit code 0. Red means something changed. Exit code 1.
 
-### Step 6 — Protect the tool itself
+### Step 6  Protect the tool itself
 
 Windows: double-click `protect-tool.bat`
 
@@ -84,9 +84,9 @@ chmod -R a-w guard.mjs src/ configs/
 
 This sets the tool's source code read-only. `hashes/` and `reports/` remain writable (the tool needs to write there).
 
-### Step 7 — Create a desktop shortcut (optional)
+### Step 7  Create a desktop shortcut (optional)
 
-Create a shortcut to `check-all.bat` on your desktop. Double-click it any time to check ALL projects at once. Do NOT copy the `.bat` file elsewhere — it only works from inside the cage-guard folder.
+Create a shortcut to `check-all.bat` on your desktop. Double-click it any time to check ALL projects at once. Do NOT copy the `.bat` file elsewhere it only works from inside the cage-guard folder.
 
 ## 4. Commands
 
@@ -250,7 +250,7 @@ Each project is one JSON file in `configs/`, e.g. `configs/my-project.json`:
 
 ## 6. Detection profiles
 
-Profiles are data in `src/data/detection-profiles.mjs`. To add a profile, edit that file — no code changes elsewhere.
+Profiles are data in `src/data/detection-profiles.mjs`. To add a profile, edit that file no code changes elsewhere.
 
 - node-core
 - typescript
@@ -288,7 +288,7 @@ Config file is set read-only after capture. To edit: remove read-only, edit, the
 
 ## 12. Tool self-protection note
 
-Run protect-tool.bat after setup. This sets guard.mjs, src/, and configs/ to read-only. hashes/ and reports/ remain writable. Do NOT set the entire cage-guard folder read-only — the tool needs to write hash stores and reports.
+Run protect-tool.bat after setup. This sets guard.mjs, src/, and configs/ to read-only. hashes/ and reports/ remain writable. Do NOT set the entire cage-guard folder read-only the tool needs to write hash stores and reports.
 
 ## 13. Troubleshooting
 
