@@ -1,8 +1,14 @@
 # Cage Guard v1.0
 
+_File integrity monitor (FIM) for AI-agent workflows. Catch silent config tampering before you review agent work._
+
 ## 1. What this is
 
-Cage Guard is a standalone, multi-project file integrity checker. It reads one config per project, hashes the protected files, locks them read-only, and later verifies that their bytes have not changed. It is project-blind — it does not know what any file is or what any project does. It checks if bytes changed. That is all. Zero dependencies. Node.js built-ins only.
+Cage Guard is a standalone, multi-project file integrity monitor (FIM) and manual validation layer. It protects the rule files your coding agents are most tempted to change — ESLint and Prettier configs, build configs, CI workflows, and architecture docs hashes them, locks them read-only, and later verifies that their bytes have not changed.
+
+Why it exists: AI coding agents that hit strict local guardrails sometimes quietly rewrite config files to make their own code pass, instead of refactoring to match your design. Cage Guard catches that before you waste time evaluating compromised work. You run it yourself, in your own terminal, outside the project it protects: a single `node guard.mjs check` (or double-click `check-all.bat`). Green means intact. Yellow means a file is not captured or not locked. Red means a protected file was modified or deleted.
+
+It is project-blind it does not know what any file is or what any project does. It checks if bytes changed. That is all. Zero dependencies. Node.js built-ins only. A low-friction alternative to enterprise file-integrity suites for teams running autonomous coding agents.
 
 ## 2. Requirements
 
@@ -86,7 +92,7 @@ This sets the tool's source code read-only. `hashes/` and `reports/` remain writ
 
 ### Step 7 — Create a desktop shortcut (optional)
 
-Create a shortcut to `check-all.bat` on your desktop. Double-click it any time to check ALL projects at once. Do NOT copy the `.bat` file elsewhere — it only works from inside the cage-guard folder.
+Create a shortcut to `check-all.bat` on your desktop. Double-click it any time to check ALL projects at once. Do NOT copy the `.bat` file elsewhere it only works from inside the cage-guard folder.
 
 ## 4. Commands
 
@@ -250,7 +256,7 @@ Each project is one JSON file in `configs/`, e.g. `configs/my-project.json`:
 
 ## 6. Detection profiles
 
-Profiles are data in `src/data/detection-profiles.mjs`. To add a profile, edit that file — no code changes elsewhere.
+Profiles are data in `src/data/detection-profiles.mjs`. To add a profile, edit that file no code changes elsewhere.
 
 - node-core
 - typescript
@@ -288,7 +294,7 @@ Config file is set read-only after capture. To edit: remove read-only, edit, the
 
 ## 12. Tool self-protection note
 
-Run protect-tool.bat after setup. This sets guard.mjs, src/, and configs/ to read-only. hashes/ and reports/ remain writable. Do NOT set the entire cage-guard folder read-only — the tool needs to write hash stores and reports.
+Run protect-tool.bat after setup. This sets guard.mjs, src/, and configs/ to read-only. hashes/ and reports/ remain writable. Do NOT set the entire cage-guard folder read-only  the tool needs to write hash stores and reports.
 
 ## 13. Troubleshooting
 
