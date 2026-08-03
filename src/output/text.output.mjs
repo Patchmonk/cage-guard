@@ -12,34 +12,55 @@ import {
   yellow,
 } from '../utils/colors.util.mjs';
 import { sanitizeFilename } from '../utils/paths.util.mjs';
+import { Output } from './base.output.mjs';
 
 /**
- * All output for the tool: console, report files, and the agent-paste
- * block. No other module prints. Console output uses process.stdout.write;
- * errors are the entry point's job via process.stderr.write.
+ * Human-readable output strategy. All text that reaches the terminal
+ * flows through this class. The timestamp formatter is injectable so
+ * tests can pin deterministic output.
  */
-export class Report {
+export class TextOutput extends Output {
   /**
    * @param {string} reportsDir - absolute path to the tool's reports/ directory
+   * @param {(date: Date) => string} formatTimestamp - local-time formatter
    */
-  constructor(reportsDir) {
+  constructor(reportsDir, formatTimestamp = defaultFormatTimestamp) {
+    super();
     this._reportsDir = reportsDir;
+    this._formatTimestamp = formatTimestamp;
   }
 
   /**
    * Print a yellow warning line to stdout.
    * @param {string} message - warning text
    */
-  printWarning(message) {
+  renderWarning(message) {
     process.stdout.write(`${yellow(`! ${message}`)}\n`);
+  }
+
+  /**
+   * Print a red error line to stderr.
+   * @param {string} message - error text
+   */
+  renderError(message) {
+    process.stderr.write(`${red(message)}\n`);
+  }
+
+  /**
+   * Print a plain informational message to stdout.
+   * @param {string} message - message text
+   */
+  renderMessage(message) {
+    process.stdout.write(`${message}\n`);
   }
 
   /**
    * Print the capture summary: green per-file confirmation and totals.
    * @param {ProjectConfig} config - loaded project config
    * @param {Array<{ relativePath: string, sha256: string, captured: boolean }>} fileEntries
+   * @param {number} warningCount - number of warnings emitted during capture
    */
-  printCaptureSummary(config, fileEntries) {
+  renderCaptureResult(config, fileEntries, warningCount) {
     this._printHeader(`CAGE GUARD — ${config.name}`, `CAPTURE — ${this._now()}`);
     process.stdout.write('\n');
     for (const entry of fileEntries) {
@@ -49,15 +70,32 @@ export class Report {
     }
     const total = fileEntries.length;
     process.stdout.write(`\n  ${total}/${total} captured. Files are protected.\n`);
+    if (warningCount > 0) {
+      process.stdout.write(`  ${yellow(`${WARN} ${warningCount} warning(s) during capture.`)}\n`);
+    }
     const configName = basename(config.configPath).replace(/\.json$/, '');
     process.stdout.write(`  Hash store: hashes/${configName}.hashes.json\n`);
+  }
+
+  /**
+   * Print a capture that matched no files.
+   * @param {ProjectConfig} config - loaded project config
+   * @param {number} warningCount - number of warnings emitted during capture
+   */
+  renderEmptyCapture(config, warningCount) {
+    this._printHeader(`CAGE GUARD — ${config.name}`, `CAPTURE — ${this._now()}`);
+    process.stdout.write('\n');
+    process.stdout.write('  No files matched any pattern in config. Nothing to capture.\n');
+    if (warningCount > 0) {
+      process.stdout.write(`  ${yellow(`${WARN} ${warningCount} warning(s) during capture.`)}\n`);
+    }
   }
 
   /**
    * Print a per-file check result with colored statuses and a summary line.
    * @param {CheckResult} checkResult - computed check result
    */
-  printCheckResult(checkResult) {
+  renderCheckResult(checkResult) {
     this._printHeader(
       `CAGE GUARD — ${checkResult.projectName}`,
       `CHECK — ${this._formatTimestamp(checkResult.checkedAt)}`
@@ -77,8 +115,33 @@ export class Report {
    * Print the agent-paste report block (Section 9 of the spec).
    * @param {CheckResult} checkResult - computed check result
    */
-  printAgentBlock(checkResult) {
-    process.stdout.write(this._agentBlock(checkResult));
+  renderAgentBlock(checkResult) {
+    process.stdout.write(this.agentBlock(checkResult));
+  }
+
+  /**
+   * Build the agent-paste report block text. Public and pure so tests
+   * can assert the exact golden output without capturing stdout.
+   * @param {CheckResult} checkResult - computed check result
+   * @returns {string} the full report block text
+   */
+  agentBlock(checkResult) {
+    const lines = [];
+    lines.push('=== CAGE GUARD REPORT ===');
+    lines.push(`Project:   ${checkResult.projectName}`);
+    lines.push(`Config:    configs/${checkResult.configName}.json`);
+    lines.push(`Root:      ${checkResult.root}`);
+    lines.push(`Checked:   ${this._formatTimestamp(checkResult.checkedAt)}`);
+    lines.push(`Status:    ${checkResult.violations > 0 ? 'VIOLATION' : 'OK'}`);
+    lines.push('');
+    this._appendModifiedSection(lines, checkResult.getViolations());
+    this._appendMissingSection(lines, checkResult.getViolations());
+    this._appendWarningSection(lines, checkResult.getWarnings());
+    if (checkResult.violations > 0) {
+      this._appendActionRequired(lines, checkResult.configName);
+    }
+    lines.push('=== END REPORT ===');
+    return lines.join('\n') + '\n';
   }
 
   /**
@@ -93,36 +156,37 @@ export class Report {
       `${this._timestampForFilename(checkResult.checkedAt)}.log`;
     const filePath = join(this._reportsDir, filename);
     try {
-      writeFileSync(filePath, this._agentBlock(checkResult));
+      writeFileSync(filePath, this.agentBlock(checkResult));
       return filePath;
     } catch {
-      this.printWarning(`Could not write report file: ${filePath}`);
+      this.renderWarning(`Could not write report file: ${filePath}`);
       return null;
     }
   }
 
   /**
-   * Print the combined multi-project summary. Handles both CheckResult
-   * instances and error objects { configName, projectName, error }.
-   * @param {Array<object>} results - CheckResult or error objects
+   * Print the combined multi-project summary. Results are CheckResult or
+   * CheckError objects; the error branch is selected by the `error` data
+   * field, never by instance type.
+   * @param {Array<object>} results - CheckResult or CheckError objects
    */
-  printCombinedSummary(results) {
+  renderCombinedSummary(results) {
     this._printHeader('CAGE GUARD — ALL PROJECTS', `CHECK — ${this._now()}`);
     process.stdout.write('\n');
     let clean = 0;
     let violationCount = 0;
     let errorCount = 0;
     for (const result of results) {
-      if (result instanceof CheckResult) {
+      if (result.error) {
+        errorCount += 1;
+        process.stdout.write(`  ${this._combinedErrorLine(result)}\n`);
+      } else {
         if (result.violations === 0) {
           clean += 1;
         } else {
           violationCount += result.violations;
         }
         process.stdout.write(`  ${this._combinedProjectLine(result)}\n`);
-      } else {
-        errorCount += 1;
-        process.stdout.write(`  ${this._combinedErrorLine(result)}\n`);
       }
     }
     const tally =
@@ -133,37 +197,35 @@ export class Report {
   }
 
   /**
-   * One combined-summary line for a successful or violating project.
-   * @param {CheckResult} result - computed check result
-   * @returns {string} colored summary line
+   * Print a status summary: config lock state, last capture, pattern
+   * count, and hash-store file count.
+   * @param {StatusResult} statusResult - computed status result
    */
-  _combinedProjectLine(result) {
-    if (result.violations === 0) {
-      return green(
-        `${CHECK} ${result.projectName}  ${result.intact}/${result.total} intact`
-      );
-    }
-    return red(
-      `${CROSS} ${result.projectName}  ${result.intact}/${result.total} intact — ` +
-        `${result.violations} violations`
+  renderStatusResult(statusResult) {
+    this._printHeader(
+      `CAGE GUARD — ${statusResult.projectName}`,
+      `STATUS — ${this._now()}`
     );
-  }
-
-  /**
-   * One combined-summary line for a project error object.
-   * @param {object} result - { projectName, error } error object
-   * @returns {string} red error line
-   */
-  _combinedErrorLine(result) {
-    return red(`${CROSS} ${result.projectName}  ERROR: ${result.error}`);
+    process.stdout.write('\n');
+    const lock = statusResult.configLocked ? green('LOCKED') : yellow('UNLOCKED');
+    process.stdout.write(`  Config: configs/${statusResult.configName}.json — ${lock}\n`);
+    const lastCapture = statusResult.lastCapturedAt
+      ? this._formatTimestamp(new Date(statusResult.lastCapturedAt))
+      : 'never captured';
+    process.stdout.write(`  Last capture: ${lastCapture}\n`);
+    process.stdout.write(
+      `  Protected patterns: ${statusResult.protectedPatterns.length}\n`
+    );
+    process.stdout.write(`  Files in hash store: ${statusResult.fileCount}\n`);
   }
 
   /**
    * Print scanner results grouped by profile plus folder pattern suggestions.
+   * Text-only: init is interactive and never emits JSON.
    * @param {Object<string, string[]>} profiles - profile name → matched paths
    * @param {string[]} suggestions - suggested folder patterns
    */
-  printInitResults(profiles, suggestions) {
+  renderInitResults(profiles, suggestions) {
     this._printHeader('CAGE GUARD — INIT', '');
     process.stdout.write('\n');
     const profileNames = Object.keys(profiles);
@@ -191,33 +253,35 @@ export class Report {
   }
 
   /**
-   * The agent-paste block (Section 9), shared by console and report file.
-   * @param {CheckResult} checkResult - computed check result
-   * @returns {string} the full report block text
+   * One combined-summary line for a successful or violating project.
+   * @param {object} result - CheckResult
+   * @returns {string} colored summary line
    */
-  _agentBlock(checkResult) {
-    const lines = [];
-    lines.push('=== CAGE GUARD REPORT ===');
-    lines.push(`Project:   ${checkResult.projectName}`);
-    lines.push(`Config:    configs/${checkResult.configName}.json`);
-    lines.push(`Root:      ${checkResult.root}`);
-    lines.push(`Checked:   ${this._formatTimestamp(checkResult.checkedAt)}`);
-    lines.push(`Status:    ${checkResult.violations > 0 ? 'VIOLATION' : 'OK'}`);
-    lines.push('');
-    this._appendModifiedSection(lines, checkResult.getViolations());
-    this._appendMissingSection(lines, checkResult.getViolations());
-    this._appendWarningSection(lines, checkResult.getWarnings());
-    if (checkResult.violations > 0) {
-      this._appendActionRequired(lines, checkResult.configName);
+  _combinedProjectLine(result) {
+    if (result.violations === 0) {
+      return green(
+        `${CHECK} ${result.projectName}  ${result.intact}/${result.total} intact`
+      );
     }
-    lines.push('=== END REPORT ===');
-    return lines.join('\n') + '\n';
+    return red(
+      `${CROSS} ${result.projectName}  ${result.intact}/${result.total} intact — ` +
+        `${result.violations} violations`
+    );
+  }
+
+  /**
+   * One combined-summary line for a project error object.
+   * @param {object} result - CheckError
+   * @returns {string} red error line
+   */
+  _combinedErrorLine(result) {
+    return red(`${CROSS} ${result.projectName}  ERROR: ${result.error}`);
   }
 
   /**
    * Append the MODIFIED FILES section to the report lines.
    * @param {string[]} lines - report lines being built
-   * @param {FileResult[]} violations - MODIFIED or MISSING results
+   * @param {Array} violations - MODIFIED or MISSING results
    */
   _appendModifiedSection(lines, violations) {
     const modified = violations.filter((f) => f.status === STATUS.MODIFIED);
@@ -237,7 +301,7 @@ export class Report {
   /**
    * Append the MISSING FILES section to the report lines.
    * @param {string[]} lines - report lines being built
-   * @param {FileResult[]} violations - MODIFIED or MISSING results
+   * @param {Array} violations - MODIFIED or MISSING results
    */
   _appendMissingSection(lines, violations) {
     const missing = violations.filter((f) => f.status === STATUS.MISSING);
@@ -255,7 +319,7 @@ export class Report {
   /**
    * Append the WARNINGS section to the report lines.
    * @param {string[]} lines - report lines being built
-   * @param {FileResult[]} warnings - NOT_CAPTURED or NOT_LOCKED results
+   * @param {Array} warnings - NOT_CAPTURED or NOT_LOCKED results
    */
   _appendWarningSection(lines, warnings) {
     if (warnings.length === 0) {
@@ -289,7 +353,8 @@ export class Report {
 
   /**
    * One colored console line for a single file result.
-   * @param {FileResult} file - per-file result
+   * Renders a STATUS data value; the closed enum is data, not object type.
+   * @param {object} file - FileResult
    * @returns {string} colored status line
    */
   _fileLine(file) {
@@ -324,22 +389,6 @@ export class Report {
   }
 
   /**
-   * Format a date as YYYY-MM-DD HH:MM:SS.
-   * @param {Date} date - date to format
-   * @returns {string} formatted timestamp
-   */
-  _formatTimestamp(date) {
-    if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-      return '';
-    }
-    const pad = (n) => String(n).padStart(2, '0');
-    return (
-      `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
-      `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
-    );
-  }
-
-  /**
    * Format a date for report filenames: YYYY-MM-DD-HHMM (no colons, no T).
    * @param {Date} date - date to format
    * @returns {string} filename-safe timestamp
@@ -353,10 +402,26 @@ export class Report {
   }
 
   /**
-   * Current local time as YYYY-MM-DD HH:MM:SS.
+   * Current local time formatted via the injectable formatter.
    * @returns {string} formatted timestamp
    */
   _now() {
     return this._formatTimestamp(new Date());
   }
+}
+
+/**
+ * Default local-time formatter: YYYY-MM-DD HH:MM:SS.
+ * @param {Date} date - date to format
+ * @returns {string} formatted timestamp
+ */
+export function defaultFormatTimestamp(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return '';
+  }
+  const pad = (n) => String(n).padStart(2, '0');
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  );
 }

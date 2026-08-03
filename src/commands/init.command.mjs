@@ -9,27 +9,32 @@ import { isAbsolutePath, sanitizeFilename } from '../utils/paths.util.mjs';
  * Onboarding command. Scans a project directory against detection
  * profiles, lets the user review the protected list, and writes a
  * project config. Prompts are read via node:readline and always closed.
+ * Init is interactive and text-only, so it depends on the concrete
+ * TextOutput rather than the Output interface.
  */
 export class InitCommand extends CommandBase {
   /**
    * @param {ConfigLoader} configLoader - loads and writes project configs
    * @param {HashStore} hashStore - computes and persists file hashes
    * @param {FileLock} fileLock - sets, removes, and checks read-only flags
-   * @param {Report} report - all console and file output
+   * @param {TextOutput} output - all console and file output
    * @param {Scanner} scanner - detects known config files in the project
    */
-  constructor(configLoader, hashStore, fileLock, report, scanner) {
-    super(configLoader, hashStore, fileLock, report);
+  constructor(configLoader, hashStore, fileLock, output, scanner) {
+    super(configLoader, hashStore, fileLock, output);
     this._scanner = scanner;
   }
 
   /**
    * Initialize a project: resolve its path, scan it, prompt the user,
    * and write the config file.
-   * @param {string} projectPath - absolute or relative project path
+   * @param {string[]} args - positional args; exactly one project path
    */
-  async execute(projectPath) {
-    const root = this._resolveProjectPath(projectPath);
+  async execute(args) {
+    if (args.length !== 1) {
+      throw new Error('Project path required. Usage: node guard.mjs init <path>');
+    }
+    const root = this._resolveProjectPath(args[0]);
     this._assertProjectExists(root);
     const name = this._deriveName(root);
     if (await this._promptOverwrite(name)) {
@@ -37,14 +42,14 @@ export class InitCommand extends CommandBase {
     }
     const matches = this._scanner.scan(root);
     const suggestions = this._scanner.suggestFolderPatterns(matches);
-    this._report.printInitResults(this._groupByProfile(matches), suggestions);
+    this._output.renderInitResults(this._groupByProfile(matches), suggestions);
     const patterns = await this._choosePatterns(matches);
     if (patterns === null) {
       return;
     }
     this._configLoader.write(name, { name, root, protected: patterns });
-    process.stdout.write(
-      `Config written: configs/${name}.json. Next step: node guard.mjs capture ${name}\n`
+    this._output.renderMessage(
+      `Config written: configs/${name}.json. Next step: node guard.mjs capture ${name}`
     );
   }
 
@@ -113,7 +118,7 @@ export class InitCommand extends CommandBase {
       `Config already exists: configs/${name}.json. Overwrite? [Y/n]`
     );
     if (answer.trim().toLowerCase() === 'n') {
-      process.stdout.write('Aborted.\n');
+      this._output.renderMessage('Aborted.');
       process.exitCode = 0;
       return true;
     }
@@ -136,7 +141,7 @@ export class InitCommand extends CommandBase {
     );
     const choice = answer.trim().toLowerCase();
     if (choice === 'n') {
-      process.stdout.write('Aborted. No config written.\n');
+      this._output.renderMessage('Aborted. No config written.');
       process.exitCode = 0;
       return null;
     }
@@ -197,7 +202,7 @@ export class InitCommand extends CommandBase {
         return false;
       }
     }
-    process.stdout.write('Unknown command. Use: remove <n>, add <pattern>, done\n');
+    this._output.renderMessage('Unknown command. Use: remove <n>, add <pattern>, done');
     return false;
   }
 
@@ -207,7 +212,7 @@ export class InitCommand extends CommandBase {
    */
   _printNumberedList(patterns) {
     patterns.forEach((pattern, index) => {
-      process.stdout.write(`${index + 1}. ${pattern}\n`);
+      this._output.renderMessage(`${index + 1}. ${pattern}`);
     });
   }
 

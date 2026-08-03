@@ -1,4 +1,4 @@
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -12,76 +12,94 @@ import { createInterface } from 'node:readline';
 import { ConfigLoader } from './src/services/config-loader.service.mjs';
 import { HashStore } from './src/services/hash-store.service.mjs';
 import { FileLock } from './src/services/file-lock.service.mjs';
-import { Report } from './src/services/report.service.mjs';
 import { Scanner } from './src/services/scanner.service.mjs';
+import { TextOutput } from './src/output/text.output.mjs';
+import { JsonOutput } from './src/output/json.output.mjs';
 import { InitCommand } from './src/commands/init.command.mjs';
 import { CaptureCommand } from './src/commands/capture.command.mjs';
 import { CheckCommand } from './src/commands/check.command.mjs';
+import { StatusCommand } from './src/commands/status.command.mjs';
+import { UnlockCommand } from './src/commands/unlock.command.mjs';
+import { UnprotectCommand } from './src/commands/unprotect.command.mjs';
 import { ensureDirectories } from './src/utils/paths.util.mjs';
 
 /**
  * Entry point. Creates tool directories, instantiates services and
- * commands, validates CLI arguments, and dispatches to the right command.
+ * commands, selects the output strategy, and dispatches to the command
+ * named by the first positional argument.
  */
 async function main() {
   ensureDirectories(TOOL_ROOT);
-  const configLoader = new ConfigLoader(CONFIGS_DIR);
+  const { flags, positionals } = parseArgv(process.argv.slice(2));
+  const json = flags.includes('json');
   const fileLock = new FileLock();
+  const configLoader = new ConfigLoader(CONFIGS_DIR, fileLock);
   const hashStore = new HashStore(HASHES_DIR, fileLock);
-  const report = new Report(REPORTS_DIR);
   const scanner = new Scanner();
-  const initCommand = new InitCommand(configLoader, hashStore, fileLock, report, scanner);
-  const captureCommand = new CaptureCommand(configLoader, hashStore, fileLock, report);
-  const checkCommand = new CheckCommand(configLoader, hashStore, fileLock, report);
+  const textOutput = new TextOutput(REPORTS_DIR);
+  const output = json ? new JsonOutput() : textOutput;
+  const initCommand = new InitCommand(configLoader, hashStore, fileLock, textOutput, scanner);
+  const captureCommand = new CaptureCommand(configLoader, hashStore, fileLock, output);
+  const checkCommand = new CheckCommand(configLoader, hashStore, fileLock, output);
+  const statusCommand = new StatusCommand(configLoader, hashStore, fileLock, output);
+  const unlockCommand = new UnlockCommand(configLoader, hashStore, fileLock, output);
+  const unprotectCommand = new UnprotectCommand(configLoader, hashStore, fileLock, output);
   const commandMap = new Map([
     ['init', initCommand],
     ['capture', captureCommand],
     ['check', checkCommand],
+    ['status', statusCommand],
+    ['unlock', unlockCommand],
+    ['unprotect', unprotectCommand],
   ]);
-  await run(commandMap, configLoader, process.argv[2], process.argv[3]);
+  await run(commandMap, configLoader, positionals);
 }
 
 /**
- * Validates the CLI command and argument, then dispatches.
- * @param {Map<string, object>} commandMap
- * @param {object} configLoader
- * @param {string|undefined} cmd
- * @param {string|undefined} arg
+ * Split raw argv into flags (tokens starting with --) and positionals.
+ * Data-driven: supports flags in any position and future flags without
+ * any conditional dispatch.
+ * @param {string[]} argv - raw process arguments
+ * @returns {{ flags: string[], positionals: string[] }}
  */
-async function run(commandMap, configLoader, cmd, arg) {
-  if (cmd === 'init') {
-    if (!arg) {
-      throw new Error('Project path required. Usage: node guard.mjs init <path>');
-    }
-    await commandMap.get('init').execute(arg);
-    return;
-  }
-  if (cmd === 'capture') {
-    if (!arg) {
-      throw new Error('Project name required. Usage: node guard.mjs capture <name>');
-    }
-    await commandMap.get('capture').execute(arg);
-    return;
-  }
-  if (cmd === 'check') {
-    if (!arg) {
-      await commandMap.get('check').executeAll();
+export function parseArgv(argv) {
+  const flags = [];
+  const positionals = [];
+  for (const token of argv) {
+    if (token.startsWith('--')) {
+      flags.push(token.slice(2));
     } else {
-      await commandMap.get('check').execute(arg);
+      positionals.push(token);
     }
-    return;
   }
+  return { flags, positionals };
+}
+
+/**
+ * Dispatch to the command named by the first positional argument.
+ * @param {Map<string, object>} commandMap
+ * @param {ConfigLoader} configLoader
+ * @param {string[]} positionals - non-flag arguments
+ */
+async function run(commandMap, configLoader, positionals) {
+  const [cmd, ...args] = positionals;
   if (cmd === undefined) {
     await runInteractive(commandMap, configLoader);
     return;
   }
-  throw new Error(`Unknown command: ${cmd}. Available: init, capture, check.`);
+  const command = commandMap.get(cmd);
+  if (!command) {
+    throw new Error(
+      `Unknown command: ${cmd}. Available: ${[...commandMap.keys()].join(', ')}.`
+    );
+  }
+  await command.execute(args);
 }
 
 /**
  * Interactive mode: list available configs and let the user pick one.
  * @param {Map<string, object>} commandMap
- * @param {object} configLoader
+ * @param {ConfigLoader} configLoader
  */
 async function runInteractive(commandMap, configLoader) {
   const names = configLoader.listAll();
@@ -93,7 +111,7 @@ async function runInteractive(commandMap, configLoader) {
     throw new Error('Run interactively or specify a project name.');
   }
   const selected = await promptSelection(names);
-  await commandMap.get('check').execute(selected);
+  await commandMap.get('check').execute([selected]);
 }
 
 /**
@@ -151,9 +169,14 @@ function printProjectList(names) {
   });
 }
 
-try {
-  await main();
-} catch (error) {
-  process.stderr.write(error.message + '\n');
-  process.exit(1);
+const isEntryPoint =
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isEntryPoint) {
+  try {
+    await main();
+  } catch (error) {
+    process.stderr.write(error.message + '\n');
+    process.exit(1);
+  }
 }

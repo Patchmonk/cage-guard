@@ -8,12 +8,14 @@ export class ProjectConfig {
    * @param {string} root - absolute project root path
    * @param {string[]} protectedPatterns - protected file patterns (deduplicated, no empty strings)
    * @param {string} configPath - absolute path to the config JSON file itself
+   * @param {number} version - config schema version
    */
-  constructor(name, root, protectedPatterns, configPath) {
+  constructor(name, root, protectedPatterns, configPath, version) {
     this.name = name;
     this.root = root;
     this.protected = protectedPatterns;
     this.configPath = configPath;
+    this.version = version;
     Object.freeze(this);
   }
 }

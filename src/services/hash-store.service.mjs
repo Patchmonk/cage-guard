@@ -56,7 +56,7 @@ export class HashStore {
         captured: typeof entry.captured === 'string' ? entry.captured : captured,
       };
     }
-    const data = { project: name, captured, files };
+    const data = { version: 1, project: name, captured, files };
     writeFileSync(storePath, JSON.stringify(data, null, 2));
     this._fileLock.lock(storePath);
   }
@@ -80,11 +80,18 @@ export class HashStore {
       }
       throw error;
     }
+    let parsed;
     try {
-      return JSON.parse(raw);
+      parsed = JSON.parse(raw);
     } catch {
       throw new Error(`Hash store corrupted: hashes/${name}.hashes.json`);
     }
+    const version =
+      parsed && Number.isInteger(parsed.version) ? parsed.version : 1;
+    if (version !== 1) {
+      throw new Error(`Unsupported hash store version: ${version}`);
+    }
+    return parsed;
   }
 
   /**

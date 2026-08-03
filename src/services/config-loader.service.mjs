@@ -1,8 +1,18 @@
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 
 import { ProjectConfig } from '../models/project-config.model.mjs';
 import { isAbsolutePath } from '../utils/paths.util.mjs';
+
+/** Current config schema version. */
+const CONFIG_VERSION = 1;
 
 /**
  * Loads, validates, lists, and writes project config files.
@@ -12,9 +22,11 @@ import { isAbsolutePath } from '../utils/paths.util.mjs';
 export class ConfigLoader {
   /**
    * @param {string} configsDir - absolute path to the tool's configs/ directory
+   * @param {FileLock} fileLock - sets and removes read-only flags
    */
-  constructor(configsDir) {
+  constructor(configsDir, fileLock) {
     this._configsDir = configsDir;
+    this._fileLock = fileLock;
   }
 
   /**
@@ -39,12 +51,14 @@ export class ConfigLoader {
     } catch (error) {
       throw new Error(`Invalid JSON in configs/${name}.json: ${error.message}`);
     }
+    const { version } = this._migrate(data);
     const validated = this.validate(data);
     return new ProjectConfig(
       validated.name,
       validated.root,
       validated.protected,
-      configPath
+      configPath,
+      version
     );
   }
 
@@ -101,6 +115,22 @@ export class ConfigLoader {
   }
 
   /**
+   * Resolve the schema version of raw config data. Old configs without a
+   * version field default to v1. Migration is in-memory only — the next
+   * write persists the version. A future v2 slots in here.
+   * @param {object} data - parsed config JSON
+   * @returns {{ version: number }} resolved version
+   */
+  _migrate(data) {
+    const version =
+      data && Number.isInteger(data.version) ? data.version : CONFIG_VERSION;
+    if (version !== CONFIG_VERSION) {
+      throw new Error(`Unsupported config version: ${version}`);
+    }
+    return { version };
+  }
+
+  /**
    * Filter empty strings and duplicates out of a protected pattern list.
    * @param {string[]} patterns - raw protected patterns
    * @returns {string[]} cleaned, deduplicated patterns
@@ -120,12 +150,35 @@ export class ConfigLoader {
   }
 
   /**
-   * Write a config file with 2-space JSON indentation.
+   * Write a config file atomically (temp file + rename) with 2-space JSON
+   * indentation and the current schema version. If the target is read-only
+   * it is unlocked before writing and relocked afterwards.
    * @param {string} name - config filename without extension
    * @param {object} data - config data to persist
    */
   write(name, data) {
-    writeFileSync(this._pathFor(name), JSON.stringify(data, null, 2));
+    const configPath = this._pathFor(name);
+    const payload = { version: CONFIG_VERSION, ...data };
+    const tmpPath = `${configPath}.tmp`;
+    const wasLocked = this._fileLock.isLocked(configPath);
+    if (wasLocked) {
+      this._fileLock.unlock(configPath);
+    }
+    try {
+      writeFileSync(tmpPath, JSON.stringify(payload, null, 2));
+      renameSync(tmpPath, configPath);
+    } catch (error) {
+      try {
+        unlinkSync(tmpPath);
+      } catch {
+        // Temp file already gone; nothing to clean up.
+      }
+      throw error;
+    } finally {
+      if (wasLocked) {
+        this._fileLock.lock(configPath);
+      }
+    }
   }
 
   /**

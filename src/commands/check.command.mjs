@@ -3,24 +3,30 @@ import { relative } from 'node:path';
 
 import { CommandBase } from './command.base.mjs';
 import { expandPatterns } from '../utils/paths.util.mjs';
-import { red } from '../utils/colors.util.mjs';
 import { FileResult, STATUS } from '../models/file-result.model.mjs';
 import { CheckResult } from '../models/check-result.model.mjs';
+import { CheckError } from '../models/check-error.model.mjs';
 
 /**
  * Check command. Compares protected files against the stored hash
  * store and reports integrity per file. Also supports checking all
- * configured projects in a single run.
+ * configured projects in a single run. Arity dispatch (0 vs 1 arg)
+ * selects single vs combined mode — data-driven, not type dispatch.
  */
 export class CheckCommand extends CommandBase {
   /**
-   * @param {ConfigLoader} configLoader - loads project configs
-   * @param {HashStore} hashStore - computes and loads file hashes
-   * @param {FileLock} fileLock - checks read-only flags
-   * @param {Report} report - all console and file output
+   * Execute a check. No args checks every project; one arg checks one.
+   * @param {string[]} args - positional args; zero or one project name
+   * @returns {Promise<CheckResult|null>} result, or null for the all-path
    */
-  constructor(configLoader, hashStore, fileLock, report) {
-    super(configLoader, hashStore, fileLock, report);
+  async execute(args) {
+    if (args.length === 0) {
+      return this._executeAll();
+    }
+    if (args.length !== 1) {
+      throw new Error('Usage: node guard.mjs check [<name>]');
+    }
+    return this._executeOne(args[0]);
   }
 
   /**
@@ -28,7 +34,24 @@ export class CheckCommand extends CommandBase {
    * @param {string} name - config filename without extension
    * @returns {Promise<CheckResult>} the computed check result
    */
-  async execute(name) {
+  async _executeOne(name) {
+    const checkResult = await this._computeOne(name);
+    this._output.renderCheckResult(checkResult);
+    if (checkResult.violations > 0) {
+      this._output.renderAgentBlock(checkResult);
+    }
+    this._output.writeReportFile(checkResult);
+    process.exitCode = checkResult.violations > 0 ? 1 : 0;
+    return checkResult;
+  }
+
+  /**
+   * Compute a single-project check result without rendering it.
+   * Emits pattern warnings only; rendering is the caller's job.
+   * @param {string} name - config filename without extension
+   * @returns {Promise<CheckResult>} the computed check result
+   */
+  async _computeOne(name) {
     const config = this._configLoader.load(name);
     const store = this._hashStore.load(name);
     if (store === null) {
@@ -37,22 +60,17 @@ export class CheckCommand extends CommandBase {
     const { paths, warnings } = expandPatterns(config.root, config.protected);
     this._printWarnings(warnings);
     const files = this._buildFileResults(config, store, paths);
-    const checkResult = new CheckResult(config.name, name, new Date(), files, config.root);
-    this._report.printCheckResult(checkResult);
-    if (checkResult.violations > 0) {
-      this._report.printAgentBlock(checkResult);
-    }
-    this._report.writeReportFile(checkResult);
-    process.exitCode = checkResult.violations > 0 ? 1 : 0;
-    return checkResult;
+    return new CheckResult(config.name, name, new Date(), files, config.root);
   }
 
   /**
    * Check every configured project and print a combined summary.
-   * A per-project failure is recorded and reported in red without
-   * stopping the remaining checks.
+   * A per-project failure is recorded as a CheckError and reported in
+   * red without stopping the remaining checks. In text mode each project
+   * is also rendered individually; in single-document (JSON) mode only
+   * the combined document is emitted so stdout stays one document.
    */
-  async executeAll() {
+  async _executeAll() {
     const names = this._configLoader.listAll();
     if (names.length === 0) {
       throw new Error('No configs found in configs/. Run init first.');
@@ -60,15 +78,23 @@ export class CheckCommand extends CommandBase {
     const results = [];
     for (const name of names) {
       try {
-        results.push(await this.execute(name));
+        const checkResult = await this._computeOne(name);
+        results.push(checkResult);
+        if (!this._output.isSingleDocument()) {
+          this._output.renderCheckResult(checkResult);
+          if (checkResult.violations > 0) {
+            this._output.renderAgentBlock(checkResult);
+          }
+          this._output.writeReportFile(checkResult);
+        }
       } catch (error) {
         const projectName = this._projectNameOf(name);
-        results.push({ configName: name, projectName, error: error.message });
-        process.stderr.write(red(`${projectName}: ERROR: ${error.message}\n`));
+        results.push(new CheckError(projectName, name, error.message));
+        this._output.renderError(`${projectName}: ERROR: ${error.message}`);
       }
     }
-    this._report.printCombinedSummary(results);
-    process.exitCode = results.some((result) => this._isFailure(result)) ? 1 : 0;
+    this._output.renderCombinedSummary(results);
+    process.exitCode = results.some((result) => !result.passed) ? 1 : 0;
   }
 
   /**
@@ -166,24 +192,12 @@ export class CheckCommand extends CommandBase {
   }
 
   /**
-   * Whether a combined-summary result counts as a failure.
-   * @param {object} result - CheckResult or { configName, projectName, error }
-   * @returns {boolean} true when the project has violations or an error
-   */
-  _isFailure(result) {
-    if (result instanceof CheckResult) {
-      return result.violations > 0;
-    }
-    return Boolean(result.error);
-  }
-
-  /**
-   * Print expandPatterns warnings via the report service.
+   * Print expandPatterns warnings via the output service.
    * @param {string[]} warnings - collected pattern warnings
    */
   _printWarnings(warnings) {
     for (const warning of warnings) {
-      this._report.printWarning(warning);
+      this._output.renderWarning(warning);
     }
   }
 

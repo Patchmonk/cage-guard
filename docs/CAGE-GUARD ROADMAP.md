@@ -1,7 +1,7 @@
 # CAGE-GUARD ROADMAP
 
 Last updated: 2026-08-03
-Status: v1.0 shipped. This file captures the direction and the plan.
+Status: v1.1 shipped. This file captures the direction and the plan.
 
 ## Why this tool exists
 
@@ -45,31 +45,32 @@ wrong path visible. Green means safe. Red means stop.
 - Double-click workflow (check-all.bat, protect-tool.bat)
 - PowerShell, CMD, Git Bash, Mac/Linux support
 
-## v1.1 — Stability + validation (immediately actionable)
+## v1.1 — SHIPPED (2026-08-03)
 
 Goal: make v1.0 a solid foundation and give future features a
 stable contract. No new user-facing features beyond two small
 commands. This is the "confirm v1.0 is solid" phase.
 
-- [ ] Test suite with `node:test` (built-in, zero-dep). Cover:
+- [x] Test suite with `node:test` (built-in, zero-dep). Cover:
       paths.util (wildcardToRegex, expandPatterns, walkDir,
       symlink handling), scanner, hash-store, config-loader,
       file-lock, and a golden-file test for the agent-paste block.
-- [ ] Schema versioning. Add `version` to configs/*.json and
+- [x] Schema versioning. Add `version` to configs/*.json and
       hashes/*.hashes.json, with a migration path in
       ConfigLoader.load. Required before any schema-changing feature.
-- [ ] Stable, versioned `--json` output for check, capture, and
+- [x] Stable, versioned `--json` output for check, capture, and
       status. This is the contract the dashboard and CI consume.
       Document exit codes (0/1) and the JSON shape.
-- [ ] `status <name>` command: lock state + last capture time,
+- [x] `status <name>` command: lock state + last capture time,
       no re-hash. Quick "are my files locked right now?"
-- [ ] `unlock <name>` command: remove read-only so the human can
+- [x] `unlock <name>` command: remove read-only so the human can
       edit. This is the daily friction point (README §10). Keep
       `capture` as the re-lock. This is NOT "unprotect".
-- [ ] `unprotect <name> <pattern>` command: remove a pattern from
+- [x] `unprotect <name> <pattern>` command: remove a pattern from
       the protection list. Distinct from unlock.
-- [ ] Cleanup: guard.mjs builds a commandMap but dispatches via
-      if/else — the Map is dead code. Use it or delete it.
+- [x] Cleanup: guard.mjs dispatch. The commandMap is now the real
+      dispatcher (polymorphic `execute(args)`); the if/else chain
+      and dead Map are gone.
 
 ## v1.2 — Snapshot + diff (the high-value feature)
 
@@ -156,3 +157,8 @@ breaking zero-dependency. NOT Tauri, NOT Electron, NOT a TUI.
   attribution + git blame for "which commit".
 - 2026-08-03: Added tests + schema versioning as v1.1, before any
   feature work. A correctness tool needs correctness first.
+- 2026-08-03: Shipped v1.1. 37 tests, schema v1 configs + hash
+  stores, versioned --json contract, status/unlock/unprotect
+  commands. Pre-ship audit caught two correctness bugs, both fixed:
+  check-all --json now emits exactly one document, and unprotect
+  cannot empty the protected list.
