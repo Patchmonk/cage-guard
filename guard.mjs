@@ -21,6 +21,8 @@ import { CheckCommand } from './src/commands/check.command.mjs';
 import { StatusCommand } from './src/commands/status.command.mjs';
 import { UnlockCommand } from './src/commands/unlock.command.mjs';
 import { UnprotectCommand } from './src/commands/unprotect.command.mjs';
+import { MenuCommand } from './src/commands/menu.command.mjs';
+import { ProtectToolCommand } from './src/commands/protect-tool.command.mjs';
 import { ensureDirectories } from './src/utils/paths.util.mjs';
 
 /**
@@ -44,6 +46,19 @@ async function main() {
   const statusCommand = new StatusCommand(configLoader, hashStore, fileLock, output);
   const unlockCommand = new UnlockCommand(configLoader, hashStore, fileLock, output);
   const unprotectCommand = new UnprotectCommand(configLoader, hashStore, fileLock, output);
+  const menuCommand = new MenuCommand(configLoader, hashStore, fileLock, output, {
+    capture: captureCommand,
+    unlock: unlockCommand,
+    check: checkCommand,
+    status: statusCommand,
+  });
+  const protectToolCommand = new ProtectToolCommand(
+    configLoader,
+    hashStore,
+    fileLock,
+    textOutput,
+    TOOL_ROOT
+  );
   const commandMap = new Map([
     ['init', initCommand],
     ['capture', captureCommand],
@@ -51,6 +66,8 @@ async function main() {
     ['status', statusCommand],
     ['unlock', unlockCommand],
     ['unprotect', unprotectCommand],
+    ['menu', menuCommand],
+    ['protect-tool', protectToolCommand],
   ]);
   await run(commandMap, configLoader, positionals);
 }

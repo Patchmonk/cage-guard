@@ -1,11 +1,12 @@
 @echo off
-title Cage Guard — Protect Tool Source
-echo Protecting tool source files...
-attrib +r "%~dp0guard.mjs"
-attrib +r /s "%~dp0src\*"
-attrib +r /s "%~dp0configs\*"
+setlocal
+title Cage Guard - Protect Tool Source
+cd /d "%~dp0"
+
+node "%~dp0guard.mjs" protect-tool
+set "EXIT=%errorlevel%"
+
 echo.
-echo Tool source is now read-only.
-echo NOTE: hashes/ and reports/ remain writable (required for operation).
-echo.
-pause
+echo Press any key to close this window...
+pause >nul
+exit /b %EXIT%

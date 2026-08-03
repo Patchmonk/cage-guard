@@ -253,6 +253,67 @@ export class TextOutput extends Output {
   }
 
   /**
+   * Print the interactive project picker with per-project lock state.
+   * Entries are data objects: error projects are reported in red without
+   * breaking the list. The final line prompts for a 1-based selection.
+   * @param {Array<{ name: string, fileCount: number, lockedCount: number, hasStore: boolean, error: string|null }>} entries
+   */
+  renderProjectPicker(entries) {
+    this._printHeader('CAGE GUARD — LOCKER TOOL', '');
+    process.stdout.write('\n');
+    process.stdout.write('  📂 Protected projects found:\n');
+    entries.forEach((entry, index) => {
+      process.stdout.write(`  ${index + 1}. ${entry.name}\n`);
+      process.stdout.write(`    ${this._lockStateLine(entry)}\n`);
+    });
+    process.stdout.write('\n');
+    process.stdout.write('  Select a project (1-N) or (Q)uit:\n');
+  }
+
+  /**
+   * Print the action menu for one project: header, project name, current
+   * lock state, and the numbered actions. The lock-state line reuses the
+   * same logic as the picker.
+   * @param {object} entry - one picker entry ({ name, fileCount, lockedCount, hasStore, error })
+   */
+  renderActionMenu(entry) {
+    this._printHeader('CAGE GUARD — LOCKER TOOL', '');
+    process.stdout.write('\n');
+    process.stdout.write(`  📂 Project: ${entry.name}\n`);
+    process.stdout.write(`    ${this._lockStateLine(entry)}\n`);
+    process.stdout.write('\n');
+    process.stdout.write('  1) Lock (capture)\n');
+    process.stdout.write('  2) Unlock\n');
+    process.stdout.write('  3) Check\n');
+    process.stdout.write('  4) Status\n');
+    process.stdout.write('  (B)ack  (Q)uit\n');
+  }
+
+  /**
+   * Print the tool-protect result: a green total line, a red warning per
+   * path that failed to lock or unlock, and a note that project files are
+   * owned by capture. Action is 'LOCK' or 'UNLOCK'.
+   * @param {string} action - 'LOCK' or 'UNLOCK'
+   * @param {number} total - number of files successfully protected
+   * @param {string[]} failedPaths - paths that could not be locked or unlocked
+   */
+  renderToolProtectResult(action, total, failedPaths) {
+    this._printHeader('CAGE GUARD — PROTECT TOOL', '');
+    process.stdout.write('\n');
+    const verb = action === 'LOCK' ? 'Locked' : 'Unlocked';
+    const glyph = action === 'LOCK' ? '✅' : '🔓';
+    process.stdout.write(`  ${green(`${glyph} ${verb} ${total} files`)}\n`);
+    const failVerb = action === 'LOCK' ? 'Could not lock' : 'Could not unlock';
+    for (const failedPath of failedPaths) {
+      process.stdout.write(`  ${red(`${WARN} ${failVerb}: ${failedPath}`)}\n`);
+    }
+    process.stdout.write('\n');
+    process.stdout.write(
+      '  Project files are managed by capture — this command protects the tool source only.\n'
+    );
+  }
+
+  /**
    * One combined-summary line for a successful or violating project.
    * @param {object} result - CheckResult
    * @returns {string} colored summary line
@@ -276,6 +337,33 @@ export class TextOutput extends Output {
    */
   _combinedErrorLine(result) {
     return red(`${CROSS} ${result.projectName}  ERROR: ${result.error}`);
+  }
+
+  /**
+   * One colored lock-state line for a picker or action-menu entry.
+   * Error projects are red; missing baselines, full locks, and partial
+   * locks each get their own state color and wording.
+   * @param {object} entry - picker entry ({ name, fileCount, lockedCount, hasStore, error })
+   * @returns {string} colored lock-state line
+   */
+  _lockStateLine(entry) {
+    if (entry.error) {
+      return red(`${WARN} ${entry.error}`);
+    }
+    const fileCount = entry.fileCount || 0;
+    if (!entry.hasStore || fileCount === 0) {
+      return yellow(`${WARN} no baseline yet — needs lock`);
+    }
+    const lockedCount = entry.lockedCount || 0;
+    if (lockedCount === fileCount) {
+      return green(`${CHECK} ${fileCount} files locked`);
+    }
+    if (lockedCount === 0) {
+      return yellow(`${WARN} ${fileCount} files unlocked`);
+    }
+    return yellow(
+      `${WARN} ${fileCount} files (${lockedCount} locked, ${fileCount - lockedCount} unlocked)`
+    );
   }
 
   /**

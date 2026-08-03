@@ -71,6 +71,17 @@ commands. This is the "confirm v1.0 is solid" phase.
 - [x] Cleanup: guard.mjs dispatch. The commandMap is now the real
       dispatcher (polymorphic `execute(args)`); the if/else chain
       and dead Map are gone.
+- [x] GATE double-click hub (added after ship, same release).
+      `gate.bat` → `node guard.mjs menu`: interactive project
+      picker with live lock counts, branching into Lock (capture),
+      Unlock, Check, Status — all with confirm prompts. Replaces
+      the proof-of-concept `open-gate.bat`. `protect-tool.bat`
+      rewritten as a real command (`node guard.mjs protect-tool
+      [lock|unlock]`) with verification output and a lock/unlock
+      prompt; `check-all.bat` kept as a thin launcher. All three
+      shortcuts are now thin launchers over testable commands.
+      Daily flow needs no console typing and no remembering
+      project names. 17 new tests (37 → 54).
 
 ## v1.2 — Snapshot + diff (the high-value feature)
 
@@ -162,3 +173,11 @@ breaking zero-dependency. NOT Tauri, NOT Electron, NOT a TUI.
   commands. Pre-ship audit caught two correctness bugs, both fixed:
   check-all --json now emits exactly one document, and unprotect
   cannot empty the protected list.
+- 2026-08-03: Added the GATE hub to v1.1 after ship. The daily
+  friction point was remembering project names and typing
+  `node guard.mjs capture <name>` in a console. `open-gate.bat`
+  (proof-of-concept) was replaced by `gate.bat` → `node guard.mjs
+  menu`, an interactive picker with live lock counts and
+  Lock/Unlock/Check/Status branches. `protect-tool.bat` became a
+  real command with lock/unlock + verification. All shortcuts are
+  now thin launchers over testable commands. 17 new tests (37→54).

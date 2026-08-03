@@ -1,5 +1,12 @@
 @echo off
-title Cage Guard — All Projects
+setlocal
+title CageGuard - Check All Projects
+cd /d "%~dp0"
+
 node "%~dp0guard.mjs" check
+set "EXIT=%errorlevel%"
+
 echo.
-pause
+echo Press any key to close this window...
+pause >nul
+exit /b %EXIT%
